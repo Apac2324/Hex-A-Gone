@@ -1,1 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hex-a-Gone Party</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: radial-gradient(circle at 50% 20%, #3a2d6b 0%, #1a1436 60%, #0c0920 100%);
+    font-family: 'Trebuchet MS', Arial, sans-serif;
+    color:#fff;
+    min-height:100vh;
+    display:flex; align-items:center; justify-content:center;
+    overflow:hidden;
+  }
+  .screen { display:none; flex-direction:column; align-items:center; gap:14px; padding:20px; width:100%; max-width:480px; text-align:center; }
+  .screen.active { display:flex; }
+  h1 { font-size:34px; text-shadow:0 4px 12px rgba(0,0,0,0.5); }
+  h1 span { color:#ffd23f; }
+  p.sub { opacity:0.75; font-size:14px; max-width:400px; }
+  input[type=text] {
+    padding:12px 16px; font-size:18px; border-radius:10px; border:none; outline:none;
+    text-align:center; width:220px; letter-spacing:1px;
+  }
+  button {
+    background:#ffd23f; color:#1a1436; border:none; padding:14px 30px; font-size:17px; font-weight:bold;
+    border-radius:30px; cursor:pointer; box-shadow:0 4px 0 #c99a1e; transition:transform .08s;
+  }
+  button:active { transform:translateY(3px); box-shadow:0 1px 0 #c99a1e; }
+  button.secondary { background:#4dd0a4; box-shadow:0 4px 0 #2e9e78; }
+  button.secondary:active { box-shadow:0 1px 0 #2e9e78; }
+  button:disabled { opacity:0.5; cursor:not-allowed; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
+  #roomCodeDisplay {
+    font-size:44px; font-weight:bold; letter-spacing:8px; color:#ffd23f;
+    background:rgba(255,255,255,0.08); padding:10px 26px; border-radius:14px; margin:6px 0;
+  }
+  #playerList { list-style:none; width:100%; max-width:320px; text-align:left; }
+  #playerList li { padding:6px 12px; margin:4px 0; background:rgba(255,255,255,0.08); border-radius:8px; display:flex; align-items:center; gap:8px; font-size:14px; }
+  .dot { width:12px; height:12px; border-radius:50%; display:inline-block; }
+  #gameWrap { position:relative; }
+  canvas { display:block; border-radius:14px; box-shadow:0 10px 40px rgba(0,0,0,0.5); background:#0c0920; }
+  #hud {
+    position:absolute; top:10px; left:10px; right:10px; display:flex; justify-content:space-between;
+    pointer-events:none; font-weight:bold; text-shadow:0 2px 4px rgba(0,0,0,0.6); font-size:15px;
+  }
+  #hud .pill { background:rgba(0,0,0,0.4); padding:6px 14px; border-radius:20px; }
+  #bigMessage {
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    font-size:60px; font-weight:bold; pointer-events:none; text-shadow:0 6px 16px rgba(0,0,0,0.6);
+    color:#ffd23f;
+  }
+  #eliminatedBanner {
+    position:absolute; bottom:16px; left:50%; transform:translateX(-50%);
+    background:rgba(0,0,0,0.55); padding:8px 18px; border-radius:20px; font-size:14px; display:none;
+  }
+  #error { color:#ff8080; font-size:13px; min-height:18px; }
+  code.small { background:rgba(255,255,255,0.1); padding:2px 6px; border-radius:5px; }
+</style>
+</head>
+<body>
+
+<!-- SETUP NOTICE -->
+<div id="setupScreen" class="screen active">
+  <h1>🔥 Setup Needed</h1>
+  <p class="sub">This game needs your own free Firebase project to sync players. Open <code class="small">index.html</code> in a text editor, find the <code class="small">firebaseConfig</code> object near the top of the script, and paste in your project's config values. See the included README.md for step-by-step instructions. Once it's filled in, this screen will disappear automatically.</p>
+</div>
+
+<!-- NAME + JOIN/CREATE -->
+<div id="nameScreen" class="screen">
+  <h1>🔷 Hex-a-<span>Gone</span></h1>
+  <p class="sub">Survive on the shrinking hex floor. Tiles vanish beneath you — keep moving or fall. Last bean standing wins.</p>
+  <input type="text" id="nameInput" placeholder="Your name" maxlength="12">
+  <div class="row">
+    <button id="createBtn">Create Room</button>
+  </div>
+  <div class="row">
+    <input type="text" id="codeInput" placeholder="ROOM CODE" maxlength="4" style="text-transform:uppercase; width:140px;">
+    <button class="secondary" id="joinBtn">Join Room</button>
+  </div>
+  <div id="error"></div>
+</div>
+
+<!-- LOBBY -->
+<div id="lobbyScreen" class="screen">
+  <h1>Lobby</h1>
+  <p class="sub">Share this code with friends:</p>
+  <div id="roomCodeDisplay">----</div>
+  <ul id="playerList"></ul>
+  <button id="startBtn" style="display:none;">Start Game</button>
+  <p class="sub" id="waitingMsg">Waiting for the host to start...</p>
+</div>
+
+<!-- GAME -->
+<div id="gameScreen" class="screen">
+  <div id="gameWrap">
+    <canvas id="canvas" width="640" height="560"></canvas>
+    <div id="hud">
+      <div class="pill" id="roundPill">Round 1</div>
+      <div class="pill" id="aliveCountPill">7 alive</div>
+    </div>
+    <div id="bigMessage"></div>
+    <div id="eliminatedBanner">You fell! Spectating...</div>
+  </div>
+  <p class="sub">Move: Arrow Keys / WASD</p>
+</div>
+
+<!-- GAME OVER -->
+<div id="overScreen" class="screen">
+  <h1 id="overTitle">🏆 Winner!</h1>
+  <p class="sub" id="overSub"></p>
+  <button id="playAgainBtn">Back to Lobby</button>
+</div>
+
+<!-- ====== Firebase SDK (compat, simplest for a single-file app) ====== -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
+<script>
+(function(){
+  "use strict";
+
+  // ======================================================================
+  // 1) PASTE YOUR FIREBASE CONFIG HERE (see README.md for how to get this)
+  // ======================================================================
+  const firebaseConfig = {
+    apiKey: "AIzaSyC2PwbrNJXVjqZ9O64q1KaADpvBQMUYvks",
+    authDomain: "hex-a-gon.firebaseapp.com",
+    databaseURL: "https://hex-a-gon-default-rtdb.firebaseio.com",
+    projectId: "hex-a-gon",
+  };
+  // ======================================================================
+
+  const isConfigured = !Object.values(firebaseConfig).some(v => String(v).includes("PASTE"));
+  const setupScreen = document.getElementById('setupScreen');
+  if(!isConfigured){
+    setupScreen.classList.add('active');
+    return; // stop here until configured
+  }
+  setupScreen.classList.remove('active');
+  document.getElementById('nameScreen').classList.add('active');
+
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  // ---- time sync ----
+  let serverOffset = 0;
+  db.ref('.info/serverTimeOffset').on('value', snap => { serverOffset = snap.val() || 0; });
+  function now(){ return Date.now() + serverOffset; }
+
+  // ---- identity ----
+  const myId = (crypto.randomUUID ? crypto.randomUUID() : 'p'+Math.random().toString(36).slice(2));
+  const COLORS = ['#ffd23f','#ff6b6b','#4dd0a4','#6b8cff','#ff9f4d','#c96bff','#4dc9ff','#ff5fb0'];
+  let myName = '';
+  let myColor = COLORS[Math.floor(Math.random()*COLORS.length)];
+  let roomCode = null;
+  let isHost = false;
+  let roomRef = null;
+
+  // ======================= SCREEN HELPERS =======================
+  function showScreen(id){
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+  }
+
+  // ======================= NAME / CREATE / JOIN =======================
+  const nameInput = document.getElementById('nameInput');
+  const codeInput = document.getElementById('codeInput');
+  const errorEl = document.getElementById('error');
+
+  function randCode(){
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let s = '';
+    for(let i=0;i<4;i++) s += chars[Math.floor(Math.random()*chars.length)];
+    return s;
+  }
+
+  document.getElementById('createBtn').addEventListener('click', async () => {
+    myName = (nameInput.value || 'Bean').trim().slice(0,12) || 'Bean';
+    errorEl.textContent = '';
+    let code, attempts = 0;
+    do {
+      code = randCode();
+      const snap = await db.ref('rooms/'+code).get();
+      if(!snap.exists()) break;
+      attempts++;
+    } while(attempts < 5);
+    roomCode = code;
+    isHost = true;
+    roomRef = db.ref('rooms/'+roomCode);
+    await roomRef.set({
+      hostId: myId,
+      phase: 'lobby',
+      round: 0,
+      createdAt: firebase.database.ServerValue.TIMESTAMP,
+      players: {
+        [myId]: { name: myName, color: myColor, alive: true, x: 0, y: 0, joinedAt: firebase.database.ServerValue.TIMESTAMP }
+      }
+    });
+    roomRef.child('players/'+myId).onDisconnect().remove();
+    enterLobby();
+  });
+
+  document.getElementById('joinBtn').addEventListener('click', async () => {
+    myName = (nameInput.value || 'Bean').trim().slice(0,12) || 'Bean';
+    const code = (codeInput.value || '').trim().toUpperCase();
+    errorEl.textContent = '';
+    if(code.length !== 4){ errorEl.textContent = 'Enter the 4-character room code.'; return; }
+    const snap = await db.ref('rooms/'+code).get();
+    if(!snap.exists()){ errorEl.textContent = 'Room not found.'; return; }
+    const room = snap.val();
+    if(room.phase !== 'lobby'){ errorEl.textContent = 'That game already started.'; return; }
+    roomCode = code;
+    isHost = false;
+    roomRef = db.ref('rooms/'+roomCode);
+    // avoid color collisions where possible
+    const usedColors = new Set(Object.values(room.players||{}).map(p=>p.color));
+    const free = COLORS.find(c => !usedColors.has(c));
+    if(free) myColor = free;
+    await roomRef.child('players/'+myId).set({
+      name: myName, color: myColor, alive: true, x: 0, y: 0, joinedAt: firebase.database.ServerValue.TIMESTAMP
+    });
+    roomRef.child('players/'+myId).onDisconnect().remove();
+    enterLobby();
+  });
+
+  // ======================= LOBBY =======================
+  let lobbyPlayers = {};
+  function enterLobby(){
+    showScreen('lobbyScreen');
+    document.getElementById('roomCodeDisplay').textContent = roomCode;
+    document.getElementById('startBtn').style.display = isHost ? 'inline-block' : 'none';
+    document.getElementById('waitingMsg').style.display = isHost ? 'none' : 'block';
+
+    roomRef.child('players').on('value', snap => {
+      lobbyPlayers = snap.val() || {};
+      const ul = document.getElementById('playerList');
+      ul.innerHTML = Object.entries(lobbyPlayers).map(([id,p]) =>
+        `<li><span class="dot" style="background:${p.color}"></span>${p.name}${id===myId?' (you)':''}${id===lobbyPlayers._hostId?'':''}</li>`
+      ).join('');
+    });
+
+    roomRef.child('phase').on('value', snap => {
+      const phase = snap.val();
+      if(phase === 'countdown') startGameScreen();
+    });
+  }
+
+  document.getElementById('startBtn').addEventListener('click', async () => {
+    await roomRef.update({
+      phase: 'countdown',
+      countdownStartAt: firebase.database.ServerValue.TIMESTAMP,
+      round: 1,
+      roundSeed: Math.floor(Math.random()*1e9)
+    });
+  });
+
+  // ======================= HEX GRID MATH =======================
+  const HEX_SIZE = 27;
+  const CANVAS_CX = 320, CANVAS_CY = 300;
+  const GRID_RADIUS = 4; // hexagon of hexagons
+
+  function buildTileList(){
+    const tiles = [];
+    for(let q=-GRID_RADIUS; q<=GRID_RADIUS; q++){
+      const r1 = Math.max(-GRID_RADIUS, -q-GRID_RADIUS);
+      const r2 = Math.min(GRID_RADIUS, -q+GRID_RADIUS);
+      for(let r=r1; r<=r2; r++){
+        const x = HEX_SIZE * Math.sqrt(3) * (q + r/2);
+        const y = HEX_SIZE * 1.5 * r;
+        tiles.push({ q, r, px: CANVAS_CX + x, py: CANVAS_CY + y });
+      }
+    }
+    return tiles;
+  }
+  const TILES = buildTileList(); // static list of {q,r,px,py}, index = tile id
+
+  function pixelToHex(x, y){
+    const px = x - CANVAS_CX, py = y - CANVAS_CY;
+    const q = (Math.sqrt(3)/3 * px - 1/3 * py) / HEX_SIZE;
+    const r = (2/3 * py) / HEX_SIZE;
+    return hexRound(q, r);
+  }
+  function hexRound(q, r){
+    let x = q, z = r, y = -x-z;
+    let rx = Math.round(x), ry = Math.round(y), rz = Math.round(z);
+    const dx = Math.abs(rx-x), dy = Math.abs(ry-y), dz = Math.abs(rz-z);
+    if(dx > dy && dx > dz) rx = -ry-rz;
+    else if(dy > dz) ry = -rx-rz;
+    else rz = -rx-ry;
+    return { q: rx, r: rz };
+  }
+  function findTileIndex(q, r){
+    return TILES.findIndex(t => t.q === q && t.r === r);
+  }
+
+  // seeded shuffle for deterministic tile-removal order
+  function mulberry32(seed){
+    return function(){
+      seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function shuffledOrder(seed, n){
+    const rng = mulberry32(seed);
+    const arr = Array.from({length:n}, (_,i)=>i);
+    for(let i=n-1;i>0;i--){
+      const j = Math.floor(rng()*(i+1));
+      [arr[i],arr[j]] = [arr[j],arr[i]];
+    }
+    return arr; // arr[k] = tile index removed at position k
+  }
+
+  const ROUND_CLEAR_MS = 15000; // tiles removed progressively over this window
+  const ROUND_GRACE_MS = 6000;  // extra time with no removals before round force-ends
+  const ROUND_TOTAL_MS = ROUND_CLEAR_MS + ROUND_GRACE_MS;
+
+  function removedSetAtElapsed(seed, elapsedMs){
+    const order = shuffledOrder(seed, TILES.length);
+    // keep a safe fraction of tiles that never disappear this round, so survival is possible
+    const removableCount = Math.floor(TILES.length * 0.8);
+    const t = Math.min(elapsedMs, ROUND_CLEAR_MS);
+    const removedCount = Math.floor((t / ROUND_CLEAR_MS) * removableCount);
+    const removed = new Set();
+    for(let i=0;i<removedCount;i++) removed.add(order[i]);
+    return removed;
+  }
+
+  // ======================= GAME STATE =======================
+  const keys = {};
+  window.addEventListener('keydown', e => {
+    keys[e.code] = true;
+    if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space'].includes(e.code)) e.preventDefault();
+  });
+  window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+
+  let players = {}; // live snapshot from firebase
+  let roomState = { phase:'lobby', round:0, roundSeed:0, roundStartAt:0 };
+  let me = { x: CANVAS_CX, y: CANVAS_CY, vx:0, vy:0, alive:true, falling:false, fallProgress:0 };
+  let lastWriteTime = 0;
+  let roundHandledEnd = false;
+
+  function startGameScreen(){
+    showScreen('gameScreen');
+    document.getElementById('eliminatedBanner').style.display = 'none';
+    me.x = CANVAS_CX + (Math.random()*40-20);
+    me.y = CANVAS_CY + (Math.random()*40-20);
+    me.vx = 0; me.vy = 0; me.alive = true; me.falling = false; me.fallProgress = 0;
+
+    roomRef.on('value', snap => {
+      const v = snap.val();
+      if(!v) return;
+      players = v.players || {};
+      roomState = { phase: v.phase, round: v.round, roundSeed: v.roundSeed, roundStartAt: v.roundStartAt || 0 };
+      document.getElementById('roundPill').textContent = 'Round ' + (v.round||1);
+      const aliveCount = Object.values(players).filter(p=>p.alive).length;
+      document.getElementById('aliveCountPill').textContent = aliveCount + ' alive';
+
+      if(v.phase === 'countdown'){
+        roundHandledEnd = false;
+        // reset local player each new round if alive
+        if(players[myId] && players[myId].alive){
+          me.x = CANVAS_CX + (Math.random()*60-30);
+          me.y = CANVAS_CY + (Math.random()*60-30);
+          me.vx=0; me.vy=0; me.falling=false; me.fallProgress=0;
+        }
+      }
+      if(v.phase === 'gameOver'){
+        showGameOver(v.winnerId);
+      }
+    });
+
+    requestAnimationFrame(loop);
+  }
+
+  function showGameOver(winnerId){
+    const p = players[winnerId];
+    const title = document.getElementById('overTitle');
+    const sub = document.getElementById('overSub');
+    if(winnerId === myId){
+      title.textContent = '🏆 You Won!';
+      sub.textContent = 'You were the last bean standing.';
+    } else if(p){
+      title.textContent = '🏁 Game Over';
+      sub.textContent = p.name + ' wins!';
+    } else {
+      title.textContent = '🏁 Game Over';
+      sub.textContent = 'No survivors — everyone fell!';
+    }
+    roomRef.off();
+    showScreen('overScreen');
+  }
+
+  document.getElementById('playAgainBtn').addEventListener('click', async () => {
+    if(isHost){
+      await roomRef.update({ phase:'lobby', round:0 });
+      // revive everyone for next lobby
+      const snap = await roomRef.child('players').get();
+      const updates = {};
+      Object.keys(snap.val()||{}).forEach(id => { updates[id+'/alive'] = true; });
+      await roomRef.child('players').update(updates);
+    }
+    enterLobby();
+  });
+
+  // ======================= MAIN LOOP =======================
+  function drawHex(px, py, size, fillStyle, strokeStyle){
+    ctx.beginPath();
+    for(let i=0;i<6;i++){
+      const ang = Math.PI/180 * (60*i - 30);
+      const x = px + size*Math.cos(ang), y = py + size*Math.sin(ang);
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
+    ctx.closePath();
+    if(fillStyle){ ctx.fillStyle = fillStyle; ctx.fill(); }
+    if(strokeStyle){ ctx.strokeStyle = strokeStyle; ctx.lineWidth = 2; ctx.stroke(); }
+  }
+
+  function drawBean(x, y, color, name, isMe, falling, fallProgress, alive){
+    ctx.save();
+    const scale = falling ? Math.max(0, 1 - fallProgress) : 1;
+    const alpha = alive ? 1 : 0.35;
+    ctx.globalAlpha = alpha;
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.beginPath(); ctx.ellipse(0, 20, 14, 5, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.ellipse(0, 0, 14, 18, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#2b2b2b';
+    ctx.beginPath(); ctx.arc(-5,-3,2.4,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(5,-3,2.4,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = 'bold 11px Trebuchet MS';
+    ctx.fillStyle = isMe ? '#ffd23f' : 'rgba(255,255,255,0.85)';
+    ctx.textAlign = 'center';
+    ctx.fillText(name, x, y - 26);
+    ctx.restore();
+  }
+
+  function loop(){
+    if(roomState.phase !== 'countdown' && roomState.phase !== 'playing' && roomState.phase !== 'roundTransition'){
+      // stop looping once game over / left
+      if(roomState.phase === 'gameOver') return;
+    }
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    let removed = new Set();
+    let elapsed = 0;
+    const t = now();
+
+    if(roomState.phase === 'playing' && roomState.roundStartAt){
+      elapsed = t - roomState.roundStartAt;
+      removed = removedSetAtElapsed(roomState.roundSeed||1, elapsed);
+    }
+
+    // draw tiles
+    for(let i=0;i<TILES.length;i++){
+      const tile = TILES[i];
+      if(removed.has(i)) continue;
+      drawHex(tile.px, tile.py, HEX_SIZE-2, 'rgba(80,200,255,0.18)', 'rgba(120,220,255,0.55)');
+    }
+
+    // ----- movement + physics (only if alive and phase playing) -----
+    const myPlayer = players[myId];
+    const iAmAlive = myPlayer ? myPlayer.alive : true;
+
+    if((roomState.phase === 'playing') && iAmAlive && !me.falling){
+      let ax = 0, ay = 0;
+      if(keys['ArrowLeft']||keys['KeyA']) ax -= 1;
+      if(keys['ArrowRight']||keys['KeyD']) ax += 1;
+      if(keys['ArrowUp']||keys['KeyW']) ay -= 1;
+      if(keys['ArrowDown']||keys['KeyS']) ay += 1;
+      const acc = 0.55, maxSpeed = 3.6, friction = 0.85;
+      me.vx += ax*acc; me.vy += ay*acc;
+      const spd = Math.hypot(me.vx, me.vy);
+      if(spd > maxSpeed){ me.vx = me.vx/spd*maxSpeed; me.vy = me.vy/spd*maxSpeed; }
+      if(ax===0){ me.vx *= friction; }
+      if(ay===0){ me.vy *= friction; }
+      me.x += me.vx; me.y += me.vy;
+      me.x = Math.max(20, Math.min(canvas.width-20, me.x));
+      me.y = Math.max(20, Math.min(canvas.height-20, me.y));
+
+      // check tile under me
+      const hex = pixelToHex(me.x, me.y);
+      const idx = findTileIndex(hex.q, hex.r);
+      const onRemovedTile = (idx === -1) || removed.has(idx);
+      if(onRemovedTile){
+        me.falling = true;
+        me.fallProgress = 0;
+      }
+
+      // throttled position sync
+      if(t - lastWriteTime > 80){
+        lastWriteTime = t;
+        roomRef.child('players/'+myId).update({ x: me.x, y: me.y });
+      }
+    }
+
+    if(me.falling){
+      me.fallProgress += 0.045;
+      if(me.fallProgress >= 1 && iAmAlive){
+        roomRef.child('players/'+myId).update({ alive: false });
+        document.getElementById('eliminatedBanner').style.display = 'block';
+      }
+    }
+
+    // draw all players (from synced state, but use local smoothed pos for me)
+    Object.entries(players).forEach(([id, p]) => {
+      if(!p) return;
+      if(id === myId){
+        drawBean(me.x, me.y, myColor, p.name||myName, true, me.falling, me.fallProgress, iAmAlive);
+      } else {
+        drawBean(p.x||CANVAS_CX, p.y||CANVAS_CY, p.color, p.name, false, !p.alive, 1, p.alive);
+      }
+    });
+
+    // ----- host-authoritative round/phase transitions -----
+    if(isHost){
+      handleHostLogic(elapsed);
+    }
+
+    requestAnimationFrame(loop);
+  }
+
+  let lastCountdownCheck = 0;
+  async function handleHostLogic(elapsed){
+    const t = now();
+    if(roomState.phase === 'countdown'){
+      const snap = await roomRef.child('countdownStartAt').get();
+      const startedAt = snap.val();
+      if(startedAt && t - startedAt >= 3200){
+        await roomRef.update({ phase:'playing', roundStartAt: firebase.database.ServerValue.TIMESTAMP });
+      }
+      return;
+    }
+    if(roomState.phase === 'playing' && !roundHandledEnd){
+      const aliveIds = Object.entries(players).filter(([id,p])=>p.alive).map(([id])=>id);
+      const timeUp = elapsed >= ROUND_TOTAL_MS;
+      if(aliveIds.length <= 1 || timeUp){
+        roundHandledEnd = true;
+        if(aliveIds.length <= 1){
+          await roomRef.update({ phase:'gameOver', winnerId: aliveIds[0] || null });
+        } else {
+          // next round: respawn survivors
+          const updates = {};
+          aliveIds.forEach(id => {
+            updates['players/'+id+'/x'] = CANVAS_CX + (Math.random()*80-40);
+            updates['players/'+id+'/y'] = CANVAS_CY + (Math.random()*80-40);
+          });
+          updates['round'] = (roomState.round||1) + 1;
+          updates['roundSeed'] = Math.floor(Math.random()*1e9);
+          updates['phase'] = 'countdown';
+          updates['countdownStartAt'] = firebase.database.ServerValue.TIMESTAMP;
+          await roomRef.update(updates);
+        }
+      }
+    }
+  }
+
+})();
+</script>
+</body>
+</html>
 
