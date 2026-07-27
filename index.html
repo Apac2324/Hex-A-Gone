@@ -64,14 +64,14 @@
 <!-- SETUP NOTICE -->
 <div id="setupScreen" class="screen active">
   <h1>🔥 Setup Needed</h1>
-  <p class="sub">This game needs your own free Firebase project to sync players. Open <code class="small">index.html</code> in a text editor, find the <code class="small">firebaseConfig</code> obj[...]
+  <p class="sub">This game needs your own free Firebase project to sync players. Open <code class="small">index.html</code> in a text editor, find the <code class="small">firebaseConfig</code> object, and paste your project credentials from the Firebase Console.</p>
 </div>
 
 <!-- NAME + JOIN/CREATE -->
 <div id="nameScreen" class="screen">
   <h1>🔷 Hex-a-<span>Gone</span></h1>
   <p class="sub">Survive on the shrinking hex floor. Tiles vanish beneath you — keep moving or fall. Last bean standing wins.</p>
-  <p class="sub" style="font-size:12px; color:#4dd0a4;">Now in FIRST PERSON! 🎮</p>
+  <p class="sub" style="font-size:12px; color:#4dd0a4;">Now in FIRST PERSON! 🎮 More hexagons! 🔷</p>
   <input type="text" id="nameInput" placeholder="Your name" maxlength="12">
   <div class="row">
     <button id="createBtn">Create Room</button>
@@ -260,7 +260,7 @@
   // ======================= HEX GRID MATH =======================
   const HEX_SIZE = 27;
   const WORLD_CX = 500, WORLD_CY = 500;
-  const GRID_RADIUS = 4;
+  const GRID_RADIUS = 7;  // Increased from 4 to 7 for more hexagons
   const ARENA_EDGE = 195;
   const SAND_EDGE = 300;
   const WORLD_MAX_R = SAND_EDGE - 15;
