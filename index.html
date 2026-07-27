@@ -64,13 +64,14 @@
 <!-- SETUP NOTICE -->
 <div id="setupScreen" class="screen active">
   <h1>🔥 Setup Needed</h1>
-  <p class="sub">This game needs your own free Firebase project to sync players. Open <code class="small">index.html</code> in a text editor, find the <code class="small">firebaseConfig</code> object near the top of the script, and paste in your project's config values. See the included README.md for step-by-step instructions. Once it's filled in, this screen will disappear automatically.</p>
+  <p class="sub">This game needs your own free Firebase project to sync players. Open <code class="small">index.html</code> in a text editor, find the <code class="small">firebaseConfig</code> obj[...]
 </div>
 
 <!-- NAME + JOIN/CREATE -->
 <div id="nameScreen" class="screen">
   <h1>🔷 Hex-a-<span>Gone</span></h1>
   <p class="sub">Survive on the shrinking hex floor. Tiles vanish beneath you — keep moving or fall. Last bean standing wins.</p>
+  <p class="sub" style="font-size:12px; color:#4dd0a4;">Now in FIRST PERSON! 🎮</p>
   <input type="text" id="nameInput" placeholder="Your name" maxlength="12">
   <div class="row">
     <button id="createBtn">Create Room</button>
@@ -103,7 +104,7 @@
     <div id="bigMessage"></div>
     <div id="eliminatedBanner">You fell! Spectating...</div>
   </div>
-  <p class="sub">Move: Arrow Keys / WASD</p>
+  <p class="sub">Move: Arrow Keys / WASD | Look: Mouse</p>
 </div>
 
 <!-- GAME OVER -->
@@ -259,10 +260,10 @@
   // ======================= HEX GRID MATH =======================
   const HEX_SIZE = 27;
   const WORLD_CX = 500, WORLD_CY = 500;
-  const GRID_RADIUS = 4; // hexagon of hexagons
-  const ARENA_EDGE = 195;   // rough radius of the hex floor
-  const SAND_EDGE = 300;    // sand ring extends out to here
-  const WORLD_MAX_R = SAND_EDGE - 15; // players can't wander past this
+  const GRID_RADIUS = 4;
+  const ARENA_EDGE = 195;
+  const SAND_EDGE = 300;
+  const WORLD_MAX_R = SAND_EDGE - 15;
 
   // ---- decorative island scenery (generated once, purely visual) ----
   const TREES = (function(){
@@ -293,7 +294,7 @@
     }
     return tiles;
   }
-  const TILES = buildTileList(); // static list of {q,r,px,py}, index = tile id
+  const TILES = buildTileList();
 
   function pixelToHex(x, y){
     const px = x - WORLD_CX, py = y - WORLD_CY;
@@ -330,16 +331,15 @@
       const j = Math.floor(rng()*(i+1));
       [arr[i],arr[j]] = [arr[j],arr[i]];
     }
-    return arr; // arr[k] = tile index removed at position k
+    return arr;
   }
 
-  const ROUND_CLEAR_MS = 15000; // tiles removed progressively over this window
-  const ROUND_GRACE_MS = 6000;  // extra time with no removals before round force-ends
+  const ROUND_CLEAR_MS = 15000;
+  const ROUND_GRACE_MS = 6000;
   const ROUND_TOTAL_MS = ROUND_CLEAR_MS + ROUND_GRACE_MS;
 
   function removedSetAtElapsed(seed, elapsedMs){
     const order = shuffledOrder(seed, TILES.length);
-    // keep a safe fraction of tiles that never disappear this round, so survival is possible
     const removableCount = Math.floor(TILES.length * 0.8);
     const t = Math.min(elapsedMs, ROUND_CLEAR_MS);
     const removedCount = Math.floor((t / ROUND_CLEAR_MS) * removableCount);
@@ -359,11 +359,33 @@
   const canvas = document.getElementById('canvas');
   const ctx = canvas.getContext('2d');
 
-  let players = {}; // live snapshot from firebase
+  let players = {};
   let roomState = { phase:'lobby', round:0, roundSeed:0, roundStartAt:0 };
-  let me = { x: WORLD_CX, y: WORLD_CY, vx:0, vy:0, alive:true, falling:false, fallProgress:0 };
+  let me = { x: WORLD_CX, y: WORLD_CY, vx:0, vy:0, alive:true, falling:false, fallProgress:0, yaw: 0, pitch: 0 };
   let lastWriteTime = 0;
   let roundHandledEnd = false;
+
+  // Mouse look for first-person
+  let mouseX = canvas.width / 2;
+  let mouseY = canvas.height / 2;
+  let pointerLocked = false;
+
+  canvas.addEventListener('click', () => {
+    canvas.requestPointerLock = canvas.requestPointerLock || canvas.mozRequestPointerLock;
+    canvas.requestPointerLock();
+  });
+
+  document.addEventListener('pointerlockchange', () => {
+    pointerLocked = document.pointerLockElement === canvas || document.mozPointerLockElement === canvas;
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if(pointerLocked){
+      me.yaw -= e.movementX * 0.005;
+      me.pitch += e.movementY * 0.005;
+      me.pitch = Math.max(-Math.PI/2.5, Math.min(Math.PI/2.5, me.pitch));
+    }
+  });
 
   function startGameScreen(){
     showScreen('gameScreen');
@@ -371,6 +393,9 @@
     me.x = WORLD_CX + (Math.random()*40-20);
     me.y = WORLD_CY + (Math.random()*40-20);
     me.vx = 0; me.vy = 0; me.alive = true; me.falling = false; me.fallProgress = 0;
+    me.yaw = 0; me.pitch = 0;
+    mouseX = canvas.width / 2;
+    mouseY = canvas.height / 2;
 
     roomRef.on('value', snap => {
       const v = snap.val();
@@ -383,11 +408,11 @@
 
       if(v.phase === 'countdown'){
         roundHandledEnd = false;
-        // reset local player each new round if alive
         if(players[myId] && players[myId].alive){
           me.x = WORLD_CX + (Math.random()*60-30);
           me.y = WORLD_CY + (Math.random()*60-30);
           me.vx=0; me.vy=0; me.falling=false; me.fallProgress=0;
+          me.yaw = 0; me.pitch = 0;
         }
       }
       if(v.phase === 'gameOver'){
@@ -419,7 +444,6 @@
   document.getElementById('playAgainBtn').addEventListener('click', async () => {
     if(isHost){
       await roomRef.update({ phase:'lobby', round:0 });
-      // revive everyone for next lobby
       const snap = await roomRef.child('players').get();
       const updates = {};
       Object.keys(snap.val()||{}).forEach(id => { updates[id+'/alive'] = true; });
@@ -428,146 +452,204 @@
     enterLobby();
   });
 
-  // ======================= MAIN LOOP =======================
-  function drawIsland(){
-    // water fills the world
-    ctx.fillStyle = '#2a8fc9';
-    ctx.fillRect(WORLD_CX - 700, WORLD_CY - 700, 1400, 1400);
-    // subtle water ripple rings
-    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-    ctx.lineWidth = 3;
-    for(let rr = SAND_EDGE+40; rr < 700; rr += 55){
-      ctx.beginPath();
-      ctx.arc(WORLD_CX, WORLD_CY, rr, 0, Math.PI*2);
-      ctx.stroke();
-    }
-    // sand island
+  // ======================= FIRST-PERSON RENDERING =======================
+  
+  function drawFirstPersonView(){
+    const W = canvas.width;
+    const H = canvas.height;
+    
+    // Sky gradient (based on pitch)
+    const skyTop = '#1a1436';
+    const skyBottom = '#4a7dff';
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, skyTop);
+    grad.addColorStop(0.5 + me.pitch * 0.3, '#2a5aaa');
+    grad.addColorStop(1, skyBottom);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+    
+    // Ground (simple fade)
     ctx.fillStyle = '#e8d19a';
-    ctx.beginPath();
-    ctx.arc(WORLD_CX, WORLD_CY, SAND_EDGE, 0, Math.PI*2);
-    ctx.fill();
-    ctx.fillStyle = 'rgba(210,185,135,0.6)';
-    ctx.beginPath();
-    ctx.arc(WORLD_CX, WORLD_CY, SAND_EDGE, 0, Math.PI*2);
-    ctx.lineWidth = 14;
-    ctx.strokeStyle = 'rgba(180,155,105,0.5)';
-    ctx.stroke();
-    // trees around the sand ring
-    TREES.forEach(tr => drawTree(tr.x, tr.y, tr.scale));
-  }
+    ctx.fillRect(0, H * 0.6, W, H * 0.4);
 
-  function drawTree(x, y, scale){
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.scale(scale, scale);
-    ctx.fillStyle = 'rgba(0,0,0,0.15)';
-    ctx.beginPath(); ctx.ellipse(0, 8, 16, 5, 0, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = '#8a5a34';
-    ctx.fillRect(-4, -6, 8, 22);
-    ctx.fillStyle = '#3f9e55';
-    ctx.beginPath(); ctx.arc(-10, -18, 13, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(10, -16, 14, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(0, -28, 15, 0, Math.PI*2); ctx.fill();
-    ctx.restore();
-  }
+    // Get tile under player
+    const hex = pixelToHex(me.x, me.y);
+    const myTileIdx = findTileIndex(hex.q, hex.r);
 
-  function drawHex(px, py, size, fillStyle, strokeStyle){
-    ctx.beginPath();
-    for(let i=0;i<6;i++){
-      const ang = Math.PI/180 * (60*i - 30);
-      const x = px + size*Math.cos(ang), y = py + size*Math.sin(ang);
-      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    // Draw visible hexagons in first-person perspective
+    const visibleTiles = [];
+    for(let i = 0; i < TILES.length; i++){
+      const tile = TILES[i];
+      const dx = tile.px - me.x;
+      const dy = tile.py - me.y;
+      const dist = Math.hypot(dx, dy);
+      
+      // Only render tiles within view distance
+      if(dist < 400){
+        visibleTiles.push({ idx: i, tile, dx, dy, dist });
+      }
     }
-    ctx.closePath();
-    if(fillStyle){ ctx.fillStyle = fillStyle; ctx.fill(); }
-    if(strokeStyle){ ctx.strokeStyle = strokeStyle; ctx.lineWidth = 2; ctx.stroke(); }
+
+    // Sort by distance (painter's algorithm)
+    visibleTiles.sort((a, b) => b.dist - a.dist);
+
+    visibleTiles.forEach(({ idx, tile, dx, dy, dist }) => {
+      // Transform to view space
+      const ang = Math.atan2(dy, dx) - me.yaw;
+      const cosAng = Math.cos(ang);
+      const sinAng = Math.sin(ang);
+      
+      // Perspective projection
+      const screenX = (cosAng / dist) * 200 + W / 2;
+      const distFactor = Math.max(0.1, 1 - dist / 400);
+      const screenY = H * 0.5 + (me.pitch * 100) - (distFactor * 50);
+      const size = distFactor * 35;
+
+      // Draw hexagon with perspective
+      drawFirstPersonHex(screenX, screenY, size, idx, tile);
+    });
+
+    // Draw other players in first-person
+    Object.entries(players).forEach(([id, p]) => {
+      if(!p || id === myId) return;
+      
+      const pdx = (p.x || WORLD_CX) - me.x;
+      const pdy = (p.y || WORLD_CY) - me.y;
+      const pdist = Math.hypot(pdx, pdy);
+      
+      if(pdist < 350){
+        const pang = Math.atan2(pdy, pdx) - me.yaw;
+        const pcosAng = Math.cos(pang);
+        const psinAng = Math.sin(pang);
+        
+        const pscreenX = (pcosAng / pdist) * 200 + W / 2;
+        const pdistFactor = Math.max(0.1, 1 - pdist / 350);
+        const pscreenY = H * 0.5 + (me.pitch * 100) - (pdistFactor * 80);
+        const psize = pdistFactor * 50;
+
+        drawFirstPersonPlayer(pscreenX, pscreenY, psize, p, !p.alive);
+      }
+    });
   }
 
-  function drawBean(x, y, color, name, isMe, falling, fallProgress, alive){
-    ctx.save();
-    const scale = falling ? Math.max(0, 1 - fallProgress) : 1;
-    const alpha = alive ? 1 : 0.35;
-    ctx.globalAlpha = alpha;
-    ctx.translate(x, y);
-    ctx.scale(scale, scale);
-    // shadow
-    ctx.fillStyle = 'rgba(0,0,0,0.25)';
-    ctx.beginPath(); ctx.ellipse(0, 22, 15, 5, 0, 0, Math.PI*2); ctx.fill();
-    // stubby arms
-    ctx.fillStyle = color;
-    ctx.beginPath(); ctx.ellipse(-15, 2, 6, 10, -0.3, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(15, 2, 6, 10, 0.3, 0, Math.PI*2); ctx.fill();
-    // feet
-    ctx.fillStyle = '#2b2b2b';
-    ctx.beginPath(); ctx.ellipse(-8, 22, 6.5, 4.5, 0, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(8, 22, 6.5, 4.5, 0, 0, Math.PI*2); ctx.fill();
-    // rounded jellybean body
-    ctx.fillStyle = color;
-    ctx.beginPath(); ctx.ellipse(0, 2, 15, 19, 0, 0, Math.PI*2); ctx.fill();
-    // body highlight
-    ctx.fillStyle = 'rgba(255,255,255,0.25)';
-    ctx.beginPath(); ctx.ellipse(-5, -6, 7, 9, -0.4, 0, Math.PI*2); ctx.fill();
-    // eyes (white)
-    ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.ellipse(-6,-3,4.5,5.5,0,0,Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(6,-3,4.5,5.5,0,0,Math.PI*2); ctx.fill();
-    // pupils
-    ctx.fillStyle = '#2b2b2b';
-    ctx.beginPath(); ctx.arc(-5.5,-2,2.3,0,Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(6.5,-2,2.3,0,Math.PI*2); ctx.fill();
-    ctx.restore();
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.font = 'bold 11px Trebuchet MS';
-    ctx.fillStyle = isMe ? '#ffd23f' : 'rgba(255,255,255,0.9)';
-    ctx.textAlign = 'center';
-    ctx.shadowColor = 'rgba(0,0,0,0.6)';
-    ctx.shadowBlur = 3;
-    ctx.fillText(name, x, y - 30);
-    ctx.restore();
-  }
-
-  function loop(){
-    if(roomState.phase !== 'countdown' && roomState.phase !== 'playing' && roomState.phase !== 'roundTransition'){
-      // stop looping once game over / left
-      if(roomState.phase === 'gameOver') return;
-    }
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-
-    // ----- camera follows the player, keeping them centered -----
-    const camX = me.x - canvas.width/2;
-    const camY = me.y - canvas.height/2;
-    ctx.save();
-    ctx.translate(-camX, -camY);
-
-    drawIsland();
-
+  function drawFirstPersonHex(x, y, size, idx, tile){
     let removed = new Set();
     let elapsed = 0;
-    const t = now();
 
     if(roomState.phase === 'playing' && roomState.roundStartAt){
-      elapsed = t - roomState.roundStartAt;
+      elapsed = now() - roomState.roundStartAt;
       removed = removedSetAtElapsed(roomState.roundSeed||1, elapsed);
     }
 
-    // draw tiles
-    for(let i=0;i<TILES.length;i++){
-      const tile = TILES[i];
-      if(removed.has(i)) continue;
-      drawHex(tile.px, tile.py, HEX_SIZE-2, 'rgba(80,200,255,0.18)', 'rgba(120,220,255,0.55)');
+    const isRemoved = removed.has(idx);
+    const isUnderMe = (idx === findTileIndex(tile.q, tile.r));
+
+    ctx.save();
+    ctx.translate(x, y);
+
+    // Hex shape
+    ctx.beginPath();
+    for(let i=0;i<6;i++){
+      const ang = Math.PI/180 * (60*i - 30);
+      const hx = size * Math.cos(ang);
+      const hy = size * Math.sin(ang);
+      if(i===0) ctx.moveTo(hx, hy);
+      else ctx.lineTo(hx, hy);
+    }
+    ctx.closePath();
+
+    if(isRemoved){
+      ctx.fillStyle = 'rgba(80, 80, 255, 0.15)';
+      ctx.strokeStyle = 'rgba(80, 80, 255, 0.3)';
+    } else {
+      if(isUnderMe){
+        ctx.fillStyle = 'rgba(255, 200, 80, 0.35)';
+        ctx.strokeStyle = 'rgba(255, 200, 80, 0.8)';
+      } else {
+        ctx.fillStyle = 'rgba(80, 200, 255, 0.22)';
+        ctx.strokeStyle = 'rgba(120, 220, 255, 0.7)';
+      }
     }
 
-    // ----- movement + physics (only if alive and phase playing) -----
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  function drawFirstPersonPlayer(x, y, size, player, dead){
+    ctx.save();
+    ctx.globalAlpha = dead ? 0.4 : 1;
+    ctx.translate(x, y);
+    ctx.scale(size / 25, size / 25);
+
+    // Simplified bean shape
+    ctx.fillStyle = player.color;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 15, 20, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // Eyes
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.ellipse(-5, -5, 4, 5, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(5, -5, 4, 5, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.fillStyle = '#2b2b2b';
+    ctx.beginPath();
+    ctx.arc(-5, -4, 2, 0, Math.PI*2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(5, -4, 2, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.restore();
+
+    // Name label
+    ctx.font = 'bold 12px Trebuchet MS';
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.textAlign = 'center';
+    ctx.shadowColor = 'rgba(0,0,0,0.8)';
+    ctx.shadowBlur = 3;
+    ctx.fillText(player.name, x, y - size - 10);
+  }
+
+  // ======================= MAIN LOOP =======================
+  function loop(){
+    if(roomState.phase !== 'countdown' && roomState.phase !== 'playing' && roomState.phase !== 'roundTransition'){
+      if(roomState.phase === 'gameOver') return;
+    }
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    drawFirstPersonView();
+
+    // ----- movement + physics -----
     const myPlayer = players[myId];
     const iAmAlive = myPlayer ? myPlayer.alive : true;
 
     if((roomState.phase === 'playing') && iAmAlive && !me.falling){
       let ax = 0, ay = 0;
-      if(keys['ArrowLeft']||keys['KeyA']) ax -= 1;
-      if(keys['ArrowRight']||keys['KeyD']) ax += 1;
-      if(keys['ArrowUp']||keys['KeyW']) ay -= 1;
-      if(keys['ArrowDown']||keys['KeyS']) ay += 1;
+      
+      // Movement relative to yaw direction
+      const moveForward = keys['ArrowUp'] || keys['KeyW'];
+      const moveBackward = keys['ArrowDown'] || keys['KeyS'];
+      const moveLeft = keys['ArrowLeft'] || keys['KeyA'];
+      const moveRight = keys['ArrowRight'] || keys['KeyD'];
+
+      if(moveForward || moveBackward || moveLeft || moveRight){
+        const forward = moveForward ? 1 : (moveBackward ? -1 : 0);
+        const strafe = moveRight ? 1 : (moveLeft ? -1 : 0);
+        
+        const moveAng = me.yaw + Math.atan2(strafe, forward);
+        ax = Math.cos(moveAng);
+        ay = Math.sin(moveAng);
+      }
+
       const acc = 0.55, maxSpeed = 3.6, friction = 0.85;
       me.vx += ax*acc; me.vy += ay*acc;
       const spd = Math.hypot(me.vx, me.vy);
@@ -575,6 +657,7 @@
       if(ax===0){ me.vx *= friction; }
       if(ay===0){ me.vy *= friction; }
       me.x += me.vx; me.y += me.vy;
+
       const distFromCenter = Math.hypot(me.x - WORLD_CX, me.y - WORLD_CY);
       if(distFromCenter > WORLD_MAX_R){
         const ang = Math.atan2(me.y - WORLD_CY, me.x - WORLD_CX);
@@ -582,16 +665,22 @@
         me.y = WORLD_CY + Math.sin(ang) * WORLD_MAX_R;
       }
 
-      // check tile under me
+      // Check tile under me
       const hex = pixelToHex(me.x, me.y);
       const idx = findTileIndex(hex.q, hex.r);
+      let removed = new Set();
+      if(roomState.phase === 'playing' && roomState.roundStartAt){
+        const elapsed = now() - roomState.roundStartAt;
+        removed = removedSetAtElapsed(roomState.roundSeed||1, elapsed);
+      }
       const onRemovedTile = (idx === -1) || removed.has(idx);
       if(onRemovedTile){
         me.falling = true;
         me.fallProgress = 0;
       }
 
-      // throttled position sync
+      // Throttled position sync
+      const t = now();
       if(t - lastWriteTime > 80){
         lastWriteTime = t;
         roomRef.child('players/'+myId).update({ x: me.x, y: me.y });
@@ -606,19 +695,12 @@
       }
     }
 
-    // draw all players (from synced state, but use local smoothed pos for me)
-    Object.entries(players).forEach(([id, p]) => {
-      if(!p) return;
-      if(id === myId){
-        drawBean(me.x, me.y, myColor, p.name||myName, true, me.falling, me.fallProgress, iAmAlive);
-      } else {
-        drawBean(p.x||WORLD_CX, p.y||WORLD_CY, p.color, p.name, false, !p.alive, 1, p.alive);
-      }
-    });
-
     // ----- host-authoritative round/phase transitions -----
-    ctx.restore(); // end camera transform — HUD/host logic below is screen-space or non-visual
     if(isHost){
+      let elapsed = 0;
+      if(roomState.phase === 'playing' && roomState.roundStartAt){
+        elapsed = now() - roomState.roundStartAt;
+      }
       handleHostLogic(elapsed);
     }
 
@@ -644,7 +726,6 @@
         if(aliveIds.length <= 1){
           await roomRef.update({ phase:'gameOver', winnerId: aliveIds[0] || null });
         } else {
-          // next round: respawn survivors
           const updates = {};
           aliveIds.forEach(id => {
             updates['players/'+id+'/x'] = WORLD_CX + (Math.random()*80-40);
