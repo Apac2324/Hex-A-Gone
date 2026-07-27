@@ -258,12 +258,12 @@
   });
 
   // ======================= HEX GRID MATH =======================
-  const HEX_SIZE = 15;
+  const HEX_SIZE = 18;
   const WORLD_CX = 320, WORLD_CY = 280;
-  const GRID_RADIUS = 5;
+  const GRID_RADIUS = 6;
   const ARENA_EDGE = 195;
   const SAND_EDGE = 300;
-  const WORLD_MAX_R = 180;
+  const WORLD_MAX_R = 200;
 
   function buildTileList(){
     const tiles = [];
@@ -349,6 +349,9 @@
   let lastWriteTime = 0;
   let roundHandledEnd = false;
 
+  // Track tiles stepped on by this player
+  let steppedOnTiles = new Set();
+
   // ==================== BACKGROUND STARS ====================
   let stars = [];
   function generateStars(){
@@ -427,6 +430,7 @@
     me.x = WORLD_CX + (Math.random()*40-20);
     me.y = WORLD_CY + (Math.random()*40-20);
     me.vx = 0; me.vy = 0; me.alive = true; me.falling = false; me.fallProgress = 0;
+    steppedOnTiles = new Set();
 
     generateStars();
 
@@ -445,6 +449,7 @@
           me.x = WORLD_CX + (Math.random()*60-30);
           me.y = WORLD_CY + (Math.random()*60-30);
           me.vx=0; me.vy=0; me.falling=false; me.fallProgress=0;
+          steppedOnTiles = new Set();
         }
       }
       if(v.phase === 'gameOver'){
@@ -516,9 +521,14 @@
       removed = removedSetAtElapsed(roomState.roundSeed||1, elapsed);
     }
 
-    const isRemoved = removed.has(idx);
+    const isRemoved = removed.has(idx) || steppedOnTiles.has(idx);
     const hex = pixelToHex(px, py);
     const isUnderMe = (idx === findTileIndex(hex.q, hex.r)) && Math.hypot(px - me.x, py - me.y) < 10;
+
+    // Don't draw if hex was stepped on
+    if(isRemoved && steppedOnTiles.has(idx)){
+      return;
+    }
 
     ctx.save();
     ctx.translate(px, py);
@@ -658,9 +668,13 @@
         me.y = WORLD_CY + Math.sin(ang) * WORLD_MAX_R;
       }
 
-      // Check tile under me
+      // Check tile under me and mark as stepped on
       const hex = pixelToHex(me.x, me.y);
       const idx = findTileIndex(hex.q, hex.r);
+      if(idx !== -1){
+        steppedOnTiles.add(idx);
+      }
+
       let removed = new Set();
       if(roomState.phase === 'playing' && roomState.roundStartAt){
         const elapsed = now() - roomState.roundStartAt;
